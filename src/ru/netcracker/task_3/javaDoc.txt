@@ -1,0 +1,633 @@
+Reading, Writing, and Creating Files
+This page discusses the details of reading, writing, creating, and opening files. There are a wide array of file I/O methods to choose from. To help make sense of the API, the following diagram arranges the file I/O methods by complexity.
+
+Line drawing with file I/O methods arranged from least complex (on the left) to most complex (on the right).
+File I/O Methods Arranged from Less Complex to More Complex
+On the far left of the diagram are the utility methods readAllBytes, readAllLines, and the write methods, designed for simple, common cases. To the right of those are the methods used to iterate over a stream or lines of text, such as newBufferedReader, newBufferedWriter, then newInputStream and newOutputStream. These methods are interoperable with the java.io package. To the right of those are the methods for dealing with ByteChannels, SeekableByteChannels, and ByteBuffers, such as the newByteChannel method. Finally, on the far right are the methods that use FileChannel for advanced applications needing file locking or memory-mapped I/O.
+
+Note: The methods for creating a new file enable you to specify an optional set of initial attributes for the file. For example, on a file system that supports the POSIX set of standards (such as UNIX), you can specify a file owner, group owner, or file permissions at the time the file is created. The Managing Metadata page explains file attributes, and how to access and set them.
+This page has the following topics:
+
+The OpenOptions Parameter
+Commonly Used Methods for Small Files
+Buffered I/O Methods for Text Files
+Methods for Unbuffered Streams and Interoperable with java.io APIs
+Methods for Channels and ByteBuffers
+Methods for Creating Regular and Temporary Files
+The OpenOptions Parameter
+Several of the methods in this section take an optional OpenOptions parameter. This parameter is optional and the API tells you what the default behavior is for the method when none is specified.
+
+The following StandardOpenOptions enums are supported:
+
+WRITE – Opens the file for write access.
+APPEND – Appends the new data to the end of the file. This option is used with the WRITE or CREATE options.
+TRUNCATE_EXISTING – Truncates the file to zero bytes. This option is used with the WRITE option.
+CREATE_NEW – Creates a new file and throws an exception if the file already exists.
+CREATE – Opens the file if it exists or creates a new file if it does not.
+DELETE_ON_CLOSE – Deletes the file when the stream is closed. This option is useful for temporary files.
+SPARSE – Hints that a newly created file will be sparse. This advanced option is honored on some file systems, such as NTFS, where large files with data "gaps" can be stored in a more efficient manner where those empty gaps do not consume disk space.
+SYNC – Keeps the file (both content and metadata) synchronized with the underlying storage device.
+DSYNC – Keeps the file content synchronized with the underlying storage device.
+Commonly Used Methods for Small Files
+Reading All Bytes or Lines from a File
+If you have a small-ish file and you would like to read its entire contents in one pass, you can use the readAllBytes(Path) or readAllLines(Path, Charset) method. These methods take care of most of the work for you, such as opening and closing the stream, but are not intended for handling large files. The following code shows how to use the readAllBytes method:
+
+Path file = ...;
+byte[] fileArray;
+fileArray = Files.readAllBytes(file);
+Writing All Bytes or Lines to a File
+You can use one of the write methods to write bytes, or lines, to a file.
+
+write(Path, byte[], OpenOption...)
+write(Path, Iterable< extends CharSequence>, Charset, OpenOption...)
+The following code snippet shows how to use a write method.
+
+Path file = ...;
+byte[] buf = ...;
+Files.write(file, buf);
+
+Buffered I/O Methods for Text Files
+The java.nio.file package supports channel I/O, which moves data in buffers, bypassing some of the layers that can bottleneck stream I/O.
+
+Reading a File by Using Buffered Stream I/O
+The newBufferedReader(Path, Charset) method opens a file for reading, returning a BufferedReader that can be used to read text from a file in an efficient manner.
+
+The following code snippet shows how to use the newBufferedReader method to read from a file. The file is encoded in "US-ASCII."
+
+Charset charset = Charset.forName("US-ASCII");
+try (BufferedReader reader = Files.newBufferedReader(file, charset)) {
+    String line = null;
+    while ((line = reader.readLine()) != null) {
+        System.out.println(line);
+    }
+} catch (IOException x) {
+    System.err.format("IOException: %s%n", x);
+}
+Writing a File by Using Buffered Stream I/O
+You can use the newBufferedWriter(Path, Charset, OpenOption...) method to write to a file using a BufferedWriter.
+
+The following code snippet shows how to create a file encoded in "US-ASCII" using this method:
+
+Charset charset = Charset.forName("US-ASCII");
+String s = ...;
+try (BufferedWriter writer = Files.newBufferedWriter(file, charset)) {
+    writer.write(s, 0, s.length());
+} catch (IOException x) {
+    System.err.format("IOException: %s%n", x);
+}
+Methods for Unbuffered Streams and Interoperable with java.io APIs
+Reading a File by Using Stream I/O
+To open a file for reading, you can use the newInputStream(Path, OpenOption...) method. This method returns an unbuffered input stream for reading bytes from the file.
+
+Path file = ...;
+try (InputStream in = Files.newInputStream(file);
+    BufferedReader reader =
+      new BufferedReader(new InputStreamReader(in))) {
+    String line = null;
+    while ((line = reader.readLine()) != null) {
+        System.out.println(line);
+    }
+} catch (IOException x) {
+    System.err.println(x);
+}
+Creating and Writing a File by Using Stream I/O
+You can create a file, append to a file, or write to a file by using the newOutputStream(Path, OpenOption...) method. This method opens or creates a file for writing bytes and returns an unbuffered output stream.
+
+The method takes an optional OpenOption parameter. If no open options are specified, and the file does not exist, a new file is created. If the file exists, it is truncated. This option is equivalent to invoking the method with the CREATE and TRUNCATE_EXISTING options.
+
+The following example opens a log file. If the file does not exist, it is created. If the file exists, it is opened for appending.
+
+import static java.nio.file.StandardOpenOption.*;
+import java.nio.file.*;
+import java.io.*;
+
+public class LogFileTest {
+
+  public static void main(String[] args) {
+
+    // Convert the string to a
+    // byte array.
+    String s = "Hello World! ";
+    byte data[] = s.getBytes();
+    Path p = Paths.get("./logfile.txt");
+
+    try (OutputStream out = new BufferedOutputStream(
+      Files.newOutputStream(p, CREATE, APPEND))) {
+      out.write(data, 0, data.length);
+    } catch (IOException x) {
+      System.err.println(x);
+    }
+  }
+}
+Methods for Channels and ByteBuffers
+Reading and Writing Files by Using Channel I/O
+While stream I/O reads a character at a time, channel I/O reads a buffer at a time. The ByteChannel interface provides basic read and write functionality. A SeekableByteChannel is a ByteChannel that has the capability to maintain a position in the channel and to change that position. A SeekableByteChannel also supports truncating the file associated with the channel and querying the file for its size.
+
+The capability to move to different points in the file and then read from or write to that location makes random access of a file possible. See Random Access Files for more information.
+
+There are two methods for reading and writing channel I/O.
+
+newByteChannel(Path, OpenOption...)
+newByteChannel(Path, Set<? extends OpenOption>, FileAttribute<?>...)
+Note: The newByteChannel methods return an instance of a SeekableByteChannel. With a default file system, you can cast this seekable byte channel to a FileChannel providing access to more advanced features such mapping a region of the file directly into memory for faster access, locking a region of the file so other processes cannot access it, or reading and writing bytes from an absolute position without affecting the channel's current position.
+Both newByteChannel methods enable you to specify a list of OpenOption options. The same open options used by the newOutputStream methods are supported, in addition to one more option: READ is required because the SeekableByteChannel supports both reading and writing.
+
+Specifying READ opens the channel for reading. Specifying WRITE or APPEND opens the channel for writing. If none of these options are specified, then the channel is opened for reading.
+
+The following code snippet reads a file and prints it to standard output:
+
+public static void readFile(Path path) throws IOException {
+
+    // Files.newByteChannel() defaults to StandardOpenOption.READ
+    try (SeekableByteChannel sbc = Files.newByteChannel(path)) {
+        final int BUFFER_CAPACITY = 10;
+        ByteBuffer buf = ByteBuffer.allocate(BUFFER_CAPACITY);
+
+        // Read the bytes with the proper encoding for this platform. If
+        // you skip this step, you might see foreign or illegible
+        // characters.
+        String encoding = System.getProperty("file.encoding");
+        while (sbc.read(buf) > 0) {
+            buf.flip();
+            System.out.print(Charset.forName(encoding).decode(buf));
+            buf.clear();
+        }
+    }
+}
+The following example, written for UNIX and other POSIX file systems, creates a log file with a specific set of file permissions. This code creates a log file or appends to the log file if it already exists. The log file is created with read/write permissions for owner and read only permissions for group.
+
+import static java.nio.file.StandardOpenOption.*;
+import java.nio.*;
+import java.nio.channels.*;
+import java.nio.file.*;
+import java.nio.file.attribute.*;
+import java.io.*;
+import java.util.*;
+
+public class LogFilePermissionsTest {
+
+  public static void main(String[] args) {
+
+    // Create the set of options for appending to the file.
+    Set<OpenOption> options = new HashSet<OpenOption>();
+    options.add(APPEND);
+    options.add(CREATE);
+
+    // Create the custom permissions attribute.
+    Set<PosixFilePermission> perms =
+      PosixFilePermissions.fromString("rw-r-----");
+    FileAttribute<Set<PosixFilePermission>> attr =
+      PosixFilePermissions.asFileAttribute(perms);
+
+    // Convert the string to a ByteBuffer.
+    String s = "Hello World! ";
+    byte data[] = s.getBytes();
+    ByteBuffer bb = ByteBuffer.wrap(data);
+
+    Path file = Paths.get("./permissions.log");
+
+    try (SeekableByteChannel sbc =
+      Files.newByteChannel(file, options, attr)) {
+      sbc.write(bb);
+    } catch (IOException x) {
+      System.out.println("Exception thrown: " + x);
+    }
+  }
+}
+Methods for Creating Regular and Temporary Files
+Creating Files
+You can create an empty file with an initial set of attributes by using the createFile(Path, FileAttribute<?>) method. For example, if, at the time of creation, you want a file to have a particular set of file permissions, use the createFile method to do so. If you do not specify any attributes, the file is created with default attributes. If the file already exists, createFile throws an exception.
+
+In a single atomic operation, the createFile method checks for the existence of the file and creates that file with the specified attributes, which makes the process more secure against malicious code.
+
+The following code snippet creates a file with default attributes:
+
+Path file = ...;
+try {
+    // Create the empty file with default permissions, etc.
+    Files.createFile(file);
+} catch (FileAlreadyExistsException x) {
+    System.err.format("file named %s" +
+        " already exists%n", file);
+} catch (IOException x) {
+    // Some other sort of failure, such as permissions.
+    System.err.format("createFile error: %s%n", x);
+}
+POSIX File Permissions has an example that uses createFile(Path, FileAttribute<?>) to create a file with pre-set permissions.
+
+You can also create a new file by using the newOutputStream methods, as described in Creating and Writing a File using Stream I/O. If you open a new output stream and close it immediately, an empty file is created.
+
+Creating Temporary Files
+You can create a temporary file using one of the following createTempFile methods:
+
+createTempFile(Path, String, String, FileAttribute<?>)
+createTempFile(String, String, FileAttribute<?>)
+The first method allows the code to specify a directory for the temporary file and the second method creates a new file in the default temporary-file directory. Both methods allow you to specify a suffix for the filename and the first method allows you to also specify a prefix. The following code snippet gives an example of the second method:
+
+try {
+    Path tempFile = Files.createTempFile(null, ".myapp");
+    System.out.format("The temporary file" +
+        " has been created: %s%n", tempFile)
+;
+} catch (IOException x) {
+    System.err.format("IOException: %s%n", x);
+}
+The result of running this file would be something like the following:
+
+The temporary file has been created: /tmp/509668702974537184.myapp
+The specific format of the temporary file name is platform specific.
+
+« Previous • Trail • Next »
+Random Access Files
+Random access files permit nonsequential, or random, access to a file's contents. To access a file randomly, you open the file, seek a particular location, and read from or write to that file.
+
+This functionality is possible with the SeekableByteChannel interface. The SeekableByteChannel interface extends channel I/O with the notion of a current position. Methods enable you to set or query the position, and you can then read the data from, or write the data to, that location. The API consists of a few, easy to use, methods:
+
+position – Returns the channel's current position
+position(long) – Sets the channel's position
+read(ByteBuffer) – Reads bytes into the buffer from the channel
+write(ByteBuffer) – Writes bytes from the buffer to the channel
+truncate(long) – Truncates the file (or other entity) connected to the channel
+Reading and Writing Files With Channel I/O shows that the Path.newByteChannel methods return an instance of a SeekableByteChannel. On the default file system, you can use that channel as is, or you can cast it to a FileChannel giving you access to more advanced features, such as mapping a region of the file directly into memory for faster access, locking a region of the file, or reading and writing bytes from an absolute location without affecting the channel's current position.
+
+The following code snippet opens a file for both reading and writing by using one of the newByteChannel methods. The SeekableByteChannel that is returned is cast to a FileChannel. Then, 12 bytes are read from the beginning of the file, and the string "I was here!" is written at that location. The current position in the file is moved to the end, and the 12 bytes from the beginning are appended. Finally, the string, "I was here!" is appended, and the channel on the file is closed.
+
+String s = "I was here!\n";
+byte data[] = s.getBytes();
+ByteBuffer out = ByteBuffer.wrap(data);
+
+ByteBuffer copy = ByteBuffer.allocate(12);
+
+try (FileChannel fc = (FileChannel.open(file, READ, WRITE))) {
+    // Read the first 12
+    // bytes of the file.
+    int nread;
+    do {
+        nread = fc.read(copy);
+    } while (nread != -1 && copy.hasRemaining());
+
+    // Write "I was here!" at the beginning of the file.
+    fc.position(0);
+    while (out.hasRemaining())
+        fc.write(out);
+    out.rewind();
+
+    // Move to the end of the file.  Copy the first 12 bytes to
+    // the end of the file.  Then write "I was here!" again.
+    long length = fc.size();
+    fc.position(length-1);
+    copy.flip();
+    while (copy.hasRemaining())
+        fc.write(copy);
+    while (out.hasRemaining())
+        fc.write(out);
+} catch (IOException x) {
+    System.out.println("I/O Exception: " + x);
+}
+« Previous • Trail • Next »
+Creating and Reading Directories
+Some of the methods previously discussed, such as delete, work on files, links and directories. But how do you list all the directories at the top of a file system? How do you list the contents of a directory or create a directory?
+
+This section covers the following functionality specific to directories:
+
+Listing a File System's Root Directories
+Creating a Directory
+Creating a Temporary Directory
+Listing a Directory's Contents
+Filtering a Directory Listing By Using Globbing
+Writing Your Own Directory Filter
+Listing a File System's Root Directories
+You can list all the root directories for a file system by using the FileSystem.getRootDirectories method. This method returns an Iterable, which enables you to use the enhanced for statement to iterate over all the root directories.
+
+The following code snippet prints the root directories for the default file system:
+
+Iterable<Path> dirs = FileSystems.getDefault().getRootDirectories();
+for (Path name: dirs) {
+    System.err.println(name);
+}
+Creating a Directory
+You can create a new directory by using the createDirectory(Path, FileAttribute<?>) method. If you don't specify any FileAttributes, the new directory will have default attributes. For example:
+
+Path dir = ...;
+Files.createDirectory(path);
+The following code snippet creates a new directory on a POSIX file system that has specific permissions:
+
+Set<PosixFilePermission> perms =
+    PosixFilePermissions.fromString("rwxr-x---");
+FileAttribute<Set<PosixFilePermission>> attr =
+    PosixFilePermissions.asFileAttribute(perms);
+Files.createDirectory(file, attr);
+To create a directory several levels deep when one or more of the parent directories might not yet exist, you can use the convenience method, createDirectories(Path, FileAttribute<?>). As with the createDirectory(Path, FileAttribute<?>) method, you can specify an optional set of initial file attributes. The following code snippet uses default attributes:
+
+Files.createDirectories(Paths.get("foo/bar/test"));
+The directories are created, as needed, from the top down. In the foo/bar/test example, if the foo directory does not exist, it is created. Next, the bar directory is created, if needed, and, finally, the test directory is created.
+
+It is possible for this method to fail after creating some, but not all, of the parent directories.
+
+Creating a Temporary Directory
+You can create a temporary directory using one of createTempDirectory methods:
+
+createTempDirectory(Path, String, FileAttribute<?>...)
+createTempDirectory(String, FileAttribute<?>...)
+The first method allows the code to specify a location for the temporary directory and the second method creates a new directory in the default temporary-file directory.
+
+Listing a Directory's Contents
+You can list all the contents of a directory by using the newDirectoryStream(Path) method. This method returns an object that implements the DirectoryStream interface. The class that implements the DirectoryStream interface also implements Iterable, so you can iterate through the directory stream, reading all of the objects. This approach scales well to very large directories.
+
+Remember: The returned DirectoryStream is a stream. If you are not using a try-with-resources statement, don't forget to close the stream in the finally block. The try-with-resources statement takes care of this for you.
+The following code snippet shows how to print the contents of a directory:
+
+Path dir = ...;
+try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+    for (Path file: stream) {
+        System.out.println(file.getFileName());
+    }
+} catch (IOException | DirectoryIteratorException x) {
+    // IOException can never be thrown by the iteration.
+    // In this snippet, it can only be thrown by newDirectoryStream.
+    System.err.println(x);
+}
+The Path objects returned by the iterator are the names of the entries resolved against the directory. So, if you are listing the contents of the /tmp directory, the entries are returned with the form /tmp/a, /tmp/b, and so on.
+
+This method returns the entire contents of a directory: files, links, subdirectories, and hidden files. If you want to be more selective about the contents that are retrieved, you can use one of the other newDirectoryStream methods, as described later in this page.
+
+Note that if there is an exception during directory iteration then DirectoryIteratorException is thrown with the IOException as the cause. Iterator methods cannot throw exception exceptions.
+
+Filtering a Directory Listing By Using Globbing
+If you want to fetch only files and subdirectories where each name matches a particular pattern, you can do so by using the newDirectoryStream(Path, String) method, which provides a built-in glob filter. If you are not familiar with glob syntax, see What Is a Glob?
+
+For example, the following code snippet lists files relating to Java: .class, .java, and .jar files.:
+
+Path dir = ...;
+try (DirectoryStream<Path> stream =
+     Files.newDirectoryStream(dir, "*.{java,class,jar}")) {
+    for (Path entry: stream) {
+        System.out.println(entry.getFileName());
+    }
+} catch (IOException x) {
+    // IOException can never be thrown by the iteration.
+    // In this snippet, it can // only be thrown by newDirectoryStream.
+    System.err.println(x);
+}
+Writing Your Own Directory Filter
+Perhaps you want to filter the contents of a directory based on some condition other than pattern matching. You can create your own filter by implementing the DirectoryStream.Filter<T> interface. This interface consists of one method, accept, which determines whether a file fulfills the search requirement.
+
+For example, the following code snippet implements a filter that retrieves only directories:
+
+DirectoryStream.Filter<Path> filter =
+    newDirectoryStream.Filter<Path>() {
+    public boolean accept(Path file) throws IOException {
+        try {
+            return (Files.isDirectory(path));
+        } catch (IOException x) {
+            // Failed to determine if it's a directory.
+            System.err.println(x);
+            return false;
+        }
+    }
+};
+Once the filter has been created, it can be invoked by using the newDirectoryStream(Path, DirectoryStream.Filter<? super Path>) method. The following code snippet uses the isDirectory filter to print only the directory's subdirectories to standard output:
+
+Path dir = ...;
+try (DirectoryStream<Path>
+                       stream = Files.newDirectoryStream(dir, filter)) {
+    for (Path entry: stream) {
+        System.out.println(entry.getFileName());
+    }
+} catch (IOException x) {
+    System.err.println(x);
+}
+This method is used to filter a single directory only. However, if you want to find all the subdirectories in a file tree, you would use the mechanism for Walking the File Tree.
+
+« Previous • Trail • Next »
+Links, Symbolic or Otherwise
+As mentioned previously, the java.nio.file package, and the Path class in particular, is "link aware." Every Path method either detects what to do when a symbolic link is encountered, or it provides an option enabling you to configure the behavior when a symbolic link is encountered.
+
+The discussion so far has been about symbolic or soft links, but some file systems also support hard links. Hard links are more restrictive than symbolic links, as follows:
+
+The target of the link must exist.
+Hard links are generally not allowed on directories.
+Hard links are not allowed to cross partitions or volumes. Therefore, they cannot exist across file systems.
+A hard link looks, and behaves, like a regular file, so they can be hard to find.
+A hard link is, for all intents and purposes, the same entity as the original file. They have the same file permissions, time stamps, and so on. All attributes are identical.
+Because of these restrictions, hard links are not used as often as symbolic links, but the Path methods work seamlessly with hard links.
+
+Several methods deal specifically with links and are covered in the following sections:
+
+Creating a Symbolic Link
+Creating a Hard Link
+Detecting a Symbolic Link
+Finding the Target of a Link
+Creating a Symbolic Link
+If your file system supports it, you can create a symbolic link by using the createSymbolicLink(Path, Path, FileAttribute<?>) method. The second Path argument represents the target file or directory and might or might not exist. The following code snippet creates a symbolic link with default permissions:
+
+Path newLink = ...;
+Path target = ...;
+try {
+    Files.createSymbolicLink(newLink, target);
+} catch (IOException x) {
+    System.err.println(x);
+} catch (UnsupportedOperationException x) {
+    // Some file systems do not support symbolic links.
+    System.err.println(x);
+}
+The FileAttributes vararg enables you to specify initial file attributes that are set atomically when the link is created. However, this argument is intended for future use and is not currently implemented.
+
+Creating a Hard Link
+You can create a hard (or regular) link to an existing file by using the createLink(Path, Path) method. The second Path argument locates the existing file, and it must exist or a NoSuchFileException is thrown. The following code snippet shows how to create a link:
+
+Path newLink = ...;
+Path existingFile = ...;
+try {
+    Files.createLink(newLink, existingFile);
+} catch (IOException x) {
+    System.err.println(x);
+} catch (UnsupportedOperationException x) {
+    // Some file systems do not
+    // support adding an existing
+    // file to a directory.
+    System.err.println(x);
+}
+Detecting a Symbolic Link
+To determine whether a Path instance is a symbolic link, you can use the isSymbolicLink(Path) method. The following code snippet shows how:
+
+Path file = ...;
+boolean isSymbolicLink =
+    Files.isSymbolicLink(file);
+For more information, see Managing Metadata.
+
+Finding the Target of a Link
+You can obtain the target of a symbolic link by using the readSymbolicLink(Path) method, as follows:
+
+Path link = ...;
+try {
+    System.out.format("Target of link" +
+        " '%s' is '%s'%n", link,
+        Files.readSymbolicLink(link));
+} catch (IOException x) {
+    System.err.println(x);
+}
+If the Path is not a symbolic link, this method throws a NotLinkException.
+
+« Previous • Trail • Next »
+Walking the File Tree
+Do you need to create an application that will recursively visit all the files in a file tree? Perhaps you need to delete every .class file in a tree, or find every file that hasn't been accessed in the last year. You can do so with the FileVisitor interface.
+
+This section covers the following:
+
+The FileVisitor Interface
+Kickstarting the Process
+Considerations When Creating a FileVisitor
+Controlling the Flow
+Examples
+The FileVisitor Interface
+To walk a file tree, you first need to implement a FileVisitor. A FileVisitor specifies the required behavior at key points in the traversal process: when a file is visited, before a directory is accessed, after a directory is accessed, or when a failure occurs. The interface has four methods that correspond to these situations:
+
+preVisitDirectory – Invoked before a directory's entries are visited.
+postVisitDirectory – Invoked after all the entries in a directory are visited. If any errors are encountered, the specific exception is passed to the method.
+visitFile – Invoked on the file being visited. The file's BasicFileAttributes is passed to the method, or you can use the file attributes package to read a specific set of attributes. For example, you can choose to read the file's DosFileAttributeView to determine if the file has the "hidden" bit set.
+visitFileFailed – Invoked when the file cannot be accessed. The specific exception is passed to the method. You can choose whether to throw the exception, print it to the console or a log file, and so on.
+If you don't need to implement all four of the FileVisitor methods, instead of implementing the FileVisitor interface, you can extend the SimpleFileVisitor class. This class, which implements the FileVisitor interface, visits all files in a tree and throws an IOError when an error is encountered. You can extend this class and override only the methods that you require.
+
+Here is an example that extends SimpleFileVisitor to print all entries in a file tree. It prints the entry whether the entry is a regular file, a symbolic link, a directory, or some other "unspecified" type of file. It also prints the size, in bytes, of each file. Any exception that is encountered is printed to the console.
+
+The FileVisitor methods are shown in bold:
+
+import static java.nio.file.FileVisitResult.*;
+
+public static class PrintFiles
+    extends SimpleFileVisitor<Path> {
+
+    // Print information about
+    // each type of file.
+    @Override
+    public FileVisitResult visitFile(Path file,
+                                   BasicFileAttributes attr) {
+        if (attr.isSymbolicLink()) {
+            System.out.format("Symbolic link: %s ", file);
+        } else if (attr.isRegularFile()) {
+            System.out.format("Regular file: %s ", file);
+        } else {
+            System.out.format("Other: %s ", file);
+        }
+        System.out.println("(" + attr.size() + "bytes)");
+        return CONTINUE;
+    }
+
+    // Print each directory visited.
+    @Override
+    public FileVisitResult postVisitDirectory(Path dir,
+                                          IOException exc) {
+        System.out.format("Directory: %s%n", dir);
+        return CONTINUE;
+    }
+
+    // If there is some error accessing
+    // the file, let the user know.
+    // If you don't override this method
+    // and an error occurs, an IOException
+    // is thrown.
+    @Override
+    public FileVisitResult visitFileFailed(Path file,
+                                       IOException exc) {
+        System.err.println(exc);
+        return CONTINUE;
+    }
+}
+Kickstarting the Process
+Once you have implemented your FileVisitor, how do you initiate the file walk? There are two walkFileTree methods in the Files class.
+
+walkFileTree(Path, FileVisitor)
+walkFileTree(Path, Set<FileVisitOption>, int, FileVisitor)
+The first method requires only a starting point and an instance of your FileVisitor. You can invoke the PrintFiles file visitor as follows:
+
+Path startingDir = ...;
+PrintFiles pf = new PrintFiles();
+Files.walkFileTree(startingDir, pf);
+The second walkFileTree method enables you to additionally specify a limit on the number of levels visited and a set of FileVisitOption enums. If you want to ensure that this method walks the entire file tree, you can specify Integer.MAX_VALUE for the maximum depth argument.
+
+You can specify the FileVisitOption enum, FOLLOW_LINKS, which indicates that symbolic links should be followed.
+
+This code snippet shows how the four-argument method can be invoked:
+
+import static java.nio.file.FileVisitResult.*;
+
+Path startingDir = ...;
+
+EnumSet<FileVisitOption> opts = EnumSet.of(FOLLOW_LINKS);
+
+Finder finder = new Finder(pattern);
+Files.walkFileTree(startingDir, opts, Integer.MAX_VALUE, finder);
+Considerations When Creating a FileVisitor
+A file tree is walked depth first, but you cannot make any assumptions about the iteration order that subdirectories are visited.
+
+If your program will be changing the file system, you need to carefully consider how you implement your FileVisitor.
+
+For example, if you are writing a recursive delete, you first delete the files in a directory before deleting the directory itself. In this case, you delete the directory in postVisitDirectory.
+
+If you are writing a recursive copy, you create the new directory in preVisitDirectory before attempting to copy the files to it (in visitFiles). If you want to preserve the attributes of the source directory (similar to the UNIX cp -p command), you need to do that after the files have been copied, in postVisitDirectory. The Copy example shows how to do this.
+
+If you are writing a file search, you perform the comparison in the visitFile method. This method finds all the files that match your criteria, but it does not find the directories. If you want to find both files and directories, you must also perform the comparison in either the preVisitDirectory or postVisitDirectory method. The Find example shows how to do this.
+
+You need to decide whether you want symbolic links to be followed. If you are deleting files, for example, following symbolic links might not be advisable. If you are copying a file tree, you might want to allow it. By default, walkFileTree does not follow symbolic links.
+
+The visitFile method is invoked for files. If you have specified the FOLLOW_LINKS option and your file tree has a circular link to a parent directory, the looping directory is reported in the visitFileFailed method with the FileSystemLoopException. The following code snippet shows how to catch a circular link and is from the Copy example:
+
+@Override
+public FileVisitResult
+    visitFileFailed(Path file,
+        IOException exc) {
+    if (exc instanceof FileSystemLoopException) {
+        System.err.println("cycle detected: " + file);
+    } else {
+        System.err.format("Unable to copy:" + " %s: %s%n", file, exc);
+    }
+    return CONTINUE;
+}
+This case can occur only when the program is following symbolic links.
+
+Controlling the Flow
+Perhaps you want to walk the file tree looking for a particular directory and, when found, you want the process to terminate. Perhaps you want to skip specific directories.
+
+The FileVisitor methods return a FileVisitResult value. You can abort the file walking process or control whether a directory is visited by the values you return in the FileVisitor methods:
+
+CONTINUE – Indicates that the file walking should continue. If the preVisitDirectory method returns CONTINUE, the directory is visited.
+TERMINATE – Immediately aborts the file walking. No further file walking methods are invoked after this value is returned.
+SKIP_SUBTREE – When preVisitDirectory returns this value, the specified directory and its subdirectories are skipped. This branch is "pruned out" of the tree.
+SKIP_SIBLINGS – When preVisitDirectory returns this value, the specified directory is not visited, postVisitDirectory is not invoked, and no further unvisited siblings are visited. If returned from the postVisitDirectory method, no further siblings are visited. Essentially, nothing further happens in the specified directory.
+In this code snippet, any directory named SCCS is skipped:
+
+import static java.nio.file.FileVisitResult.*;
+
+public FileVisitResult
+     preVisitDirectory(Path dir,
+         BasicFileAttributes attrs) {
+    (if (dir.getFileName().toString().equals("SCCS")) {
+         return SKIP_SUBTREE;
+    }
+    return CONTINUE;
+}
+In this code snippet, as soon as a particular file is located, the file name is printed to standard output, and the file walking terminates:
+
+import static java.nio.file.FileVisitResult.*;
+
+// The file we are looking for.
+Path lookingFor = ...;
+
+public FileVisitResult
+    visitFile(Path file,
+        BasicFileAttributes attr) {
+    if (file.getFileName().equals(lookingFor)) {
+        System.out.println("Located file: " + file);
+        return TERMINATE;
+    }
+    return CONTINUE;
+}
+Examples
+The following examples demonstrate the file walking mechanism:
+
+Find – Recurses a file tree looking for files and directories that match a particular glob pattern. This example is discussed in Finding Files.
+Chmod – Recursively changes permissions on a file tree (for POSIX systems only).
+Copy – Recursively copies a file tree.
+WatchDir – Demonstrates the mechanism that watches a directory for files that have been created, deleted or modified. Calling this program with the -r option watches an entire tree for changes. For more information about the file notification service, see Watching a Directory for Changes.
+« Previous • Trail • Next »
